@@ -12,11 +12,14 @@ DESCRIPTION:
     [2] http://en.wikipedia.org/wiki/Yates%27_correction_for_continuity
     [3] http://en.wikipedia.org/wiki/Z-test
 
+INSTALLATION:
+    Just add the contents of this repo into your project. Then import ABTest and initialize how the examples suggest.
+
 EXAMPLES and USAGE:
     
     Example A. Testing conversion rates of different link texts
     
-    1.  # Define the test somewhere such as a utils.py file
+    1.  # Define the test somewhere such as a utils.py file (somewhere it won't change)
             BCT = ABTest(title="Button Click Text 1.0", variates=["click me", "can't touch this", "new feature!"], default=0)
     
     2.  # Set the experiment running, assign a random variate to the users session and return, or simply return from variate from session
