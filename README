@@ -1,0 +1,87 @@
+NAME:
+    Django-ABTest
+
+DESCRIPTION:
+    ABTesting platform for Django. With built in results analysis methods, appropriate variate assignments and django-admin interface.
+    
+    There are multiple methods of analysis depending on the data presented.
+    1. For binary result data, a Pearson chi-squared test[1] are used. With automatic Yates continuity[2] corrections for small data-sets and a fudge factor for tables of larger than 2x2 size.
+    2. For continuos and large result datasets, a simple z-test anaylsis is used[3].
+
+    [1] http://en.wikipedia.org/wiki/Pearson%27s_chi-square_test
+    [2] http://en.wikipedia.org/wiki/Yates%27_correction_for_continuity
+    [3] http://en.wikipedia.org/wiki/Z-test
+
+EXAMPLES and USAGE:
+    
+    Example A. Testing conversion rates of different link texts
+    
+    1.  # Define the test somewhere such as a utils.py file
+            BCT = ABTest(title="Button Click Text 1.0", variates=["click me", "can't touch this", "new feature!"], default=0)
+    
+    2.  # Set the experiment running, assign a random variate to the users session and return, or simply return from variate from session
+            link_text = BCT.assign_experiment(request)
+    
+    3.  # in views.py pass bcv (the chosen variate) to the template
+            context['link_text'] = link_text
+        
+        # in the template output the variate in the desired place
+            <a href="/somewhere/">{{link_text}}</a>
+    
+    4.  # in the view of the page /somewhere/, assign that the experiment was a success and they clicked on the link (with value=1 ie True)
+            BCT.assign_result(request, value=1)
+            
+        # note this will throw an error if a variate has not been assigned, so its good practice to check that it exists first
+            if BCT.get_variate(request):
+                BCT.assign_//...
+    
+    5.  # evaluate the experiment in a cron job or on an admin_page, where here the winners are above the confidence level 0.8
+            winners, control = UIT.evaluate(confidence=0.8)
+            
+            # winners is a list of the variates and their confidences above their control
+            # control here was not set and so is chosen as being the worst performing variate
+    
+    
+    Example B. Testing the number of invites a user makes based on if there is some extra button
+    
+    1.  # Similarly define the test, but make sure binary=False as this allows value to be anything (i.e. numbers of invites)
+            UIT = ABTest(title="User Invite 123", variates=[True, False], binary=False)
+    
+    2.  # by not setting a default, the variate is only saved in the session and will only be saved in the db at step 4.
+            show_button = UIT.assign_experiment(request)
+            
+        # you can force a db save inline by doing
+            UIT.assign_result(request,value=0)
+            
+    3.  # again in the template use the variate how you like
+            {% if show_button %}<input value="Select-All" onclick="select_all()">{% endif %}
+    
+    4.  # in the view of the post, after say you have created the invites
+            UIT.assign_result(request, value=len(invites))
+    
+    5.  # if don't want to use the built in evaluation methods, can get the data back
+            UIT.winners() or UIT.stats()
+    
+    
+    Evaluation Options. optional arguments you can pass to evaluate
+        sample_size     - once the experiment has this many results cut it off
+        
+        force           - this will force the experiment to finish on that call
+                            can be undone by settings the experiment.finished = False in the db
+        
+        control         - this is the 0-index of the variates list passed or the variate itself
+                            evaluates the significance of winning variate against this control
+        
+        confidence      - default 0.95, the percentage confidence you want to have that the
+                            winning result is actually the winner
+
+
+BUGS:
+    No known bugs yet. If you find one, post a comment/fix on the github page.
+
+AUTHOR:
+    Tim Davey <timjdavey@gmail.com>
+
+COPYRIGHT:
+    Copyright 2009 Tim Davey.
+    Use, re-use, modify, redistribute, sell, repair... to your hearts content
