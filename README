@@ -66,7 +66,20 @@ Example B. Testing the number of invites a user makes based on if there is a sel
     
     # 5. then to return the raw data you can use to not use your own evaluation methods
         UIT.winners() or UIT.stats()
-    
+
+Example C. Same as example A. but the link is in an email
+    # 1. Define the same as before, but ensure session_persistent=False
+        ELT = ABTest(title="Email Link Text 1.0", session_persistent=False, variates=["click me", "new feature"], default=0)
+
+    # 2. Start experiment but pass no request object
+        link_text = ELT.assign_experiment()
+        link_id = ELT.get_result_id(link_text)
+
+    # 3. Use link_text and store link_id as part of the url so it can be tracked
+        <a href="http://example.com/?l={{link_id}}">{{link_text}}</a>
+
+    # 4. Then just detect the link_index from the url in the view, assign it to the experiment, then assign the result
+        ELT.assign_result(value=True,result=link_id)
 
 Initialization Options - ABTest(**options)
 =====
