@@ -1,90 +1,109 @@
 NAME:
-    Django-ABTest
+=====
+Django-ABTest
+
 
 DESCRIPTION:
-    ABTesting platform for Django. With built in results analysis methods, appropriate variate assignments and django-admin interface.
-    
-    There are multiple methods of analysis depending on the data presented.
-    1. For binary result data, a Pearson chi-squared test[1] are used. With automatic Yates continuity[2] corrections for small data-sets and a fudge factor for tables of larger than 2x2 size.
-    2. For continuos and large result datasets, a simple z-test anaylsis is used[3].
+=====
+ABTesting platform for `Django`.
+1. Contains methods to get, create, assign variates to the user. Supports both discrete (e.g. button was clicked) and continuous (e.g. number of user invites) datasets.
+2. Advanced built in methods to determine winner variates. Automatically works out the appropriate evaluation method based on dataset. (see below for details)
+3. Support for running multiple tests on a single user, on any system including emails. Although it is advised all tests are independent.
+4. Django-Admin interface with also simple reporting methods for use with custom admin tools.
 
-    [1] http://en.wikipedia.org/wiki/Pearson%27s_chi-square_test
-    [2] http://en.wikipedia.org/wiki/Yates%27_correction_for_continuity
-    [3] http://en.wikipedia.org/wiki/Z-test
 
 INSTALLATION:
-    Just add the contents of this repo into your project. Then import ABTest and initialize how the examples suggest.
+=====
+1. Copy all files into your app (`example_app`) with some name (`abtest`)
+
+2. Add `abtest` to your `INSTALLED_APPS` in `settings.py`
+
+3. Run `python manage.py sync_db`
+
 
 EXAMPLES and USAGE:
+=====
+Example A. Testing conversion rates of the copy used of some anchor (binary dataset)
     
-    Example A. Testing conversion rates of different link texts
+    # 1. Define the test somewhere such as a `utils.py` file
+        BCT = ABTest(title="Button Click Text 1.0", variates=["click me", "can't touch this", "new feature!"], default=0)
+        # note default=0, this initializes the test to be fail (not clicked)
     
-    1.  # Define the test somewhere such as a utils.py file (somewhere it won't change)
-            BCT = ABTest(title="Button Click Text 1.0", variates=["click me", "can't touch this", "new feature!"], default=0)
+    # 2. Set the experiment running, get_or_creates variate and saves to user's session, returns the variate to be used
+        link_text = BCT.assign_experiment(request)
     
-    2.  # Set the experiment running, assign a random variate to the users session and return, or simply return from variate from session
-            link_text = BCT.assign_experiment(request)
-    
-    3.  # in views.py pass bcv (the chosen variate) to the template
-            context['link_text'] = link_text
+    # 3. in a view pass `link_text` (the chosen variate) to the template
+        context['link_text'] = link_text
         
         # in the template output the variate in the desired place
-            <a href="/somewhere/">{{link_text}}</a>
+        <a href="/button_clicked/">{{link_text}}</a>
     
-    4.  # in the view of the page /somewhere/, assign that the experiment was a success and they clicked on the link (with value=1 ie True)
-            BCT.assign_result(request, value=1)
-            
-        # note this will throw an error if a variate has not been assigned, so its good practice to check that it exists first
-            if BCT.get_variate(request):
-                BCT.assign_//...
+    # 4. in the view which corresponds to /button_clicked/, assign the experiment as a success (value=1)
+        BCT.assign_result(request, value=1)
     
-    5.  # evaluate the experiment in a cron job or on an admin_page, where here the winners are above the confidence level 0.8
-            winners, control = UIT.evaluate(confidence=0.8)
-            
-            # winners is a list of the variates and their confidences above their control
-            # control here was not set and so is chosen as being the worst performing variate
-    
-    
-    Example B. Testing the number of invites a user makes based on if there is some extra button
-    
-    1.  # Similarly define the test, but make sure binary=False as this allows value to be anything (i.e. numbers of invites)
-            UIT = ABTest(title="User Invite 123", variates=[True, False], binary=False)
-    
-    2.  # by not setting a default, the variate is only saved in the session and will only be saved in the db at step 4.
-            show_button = UIT.assign_experiment(request)
-            
-        # you can force a db save inline by doing
-            UIT.assign_result(request,value=0)
-            
-    3.  # again in the template use the variate how you like
-            {% if show_button %}<input value="Select-All" onclick="select_all()">{% endif %}
-    
-    4.  # in the view of the post, after say you have created the invites
-            UIT.assign_result(request, value=len(invites))
-    
-    5.  # if don't want to use the built in evaluation methods, can get the data back
-            UIT.winners() or UIT.stats()
-    
-    
-    Evaluation Options. optional arguments you can pass to evaluate
-        sample_size     - once the experiment has this many results cut it off
+    # 5. evaluate the experiment in a cron job or on an admin_page
+        # here you are sure the returned winning variates are better than the control variate with a confidence of 80%
+        winners, control = UIT.evaluate(confidence=0.8)
         
-        force           - this will force the experiment to finish on that call
-                            can be undone by settings the experiment.finished = False in the db
-        
-        control         - this is the 0-index of the variates list passed or the variate itself
-                            evaluates the significance of winning variate against this control
-        
-        confidence      - default 0.95, the percentage confidence you want to have that the
-                            winning result is actually the winner
+        # winners is a list of tuples (winning_variate, confidence_above_control) sorted with best variate first
+        # a control variate here was not set when initializing and so it was chosen as being the worst performing variate
+    
+    
+Example B. Testing the number of invites a user makes based on if there is a select-all button
+    
+    # 1. Similarly define the test, but make sure binary=False as this allows value to be anything (i.e. numbers of invites)
+        UIT = ABTest(title="User Invite 123", variates=[True, False], binary=False)
+    
+    # 2. by not setting a default, the variate is only saved in the session and the test will only be saved in the db at step 4.
+        show_button = UIT.assign_experiment(request)
+        # this is good when the tested action is not the main one on the page
+            
+    # 3. in the template use the variate how you like
+        {% if show_button %}<input value="Select-All" onclick="select_all()">{% endif %}
+    
+    # 4. in the view where you create the invites, save the result
+        UIT.assign_result(request, value=len(invites))
+    
+    # 5. then to return the raw data you can use to not use your own evaluation methods
+        UIT.winners() or UIT.stats()
+    
+
+Initialization Options - ABTest(**options)
+=====
+i. `title` of experiment to be run. Must be unique. Required.
+ii. `variates` to be used. Can be list of anything (strs, numbers, bools, db_objects, etc)
+iii. `session_persistent=True` Set True to keep variate constant for a given user for life of session
+iv. `db_persistent=False` Set True to keep variate constant for multiple sessions (needs iii=True)
+v. `session_name='abtest'` Can overwrite the key_name which is used to store the variates in the session
+vi. `default=None` Set an initial default result when the experiment is assigned to a user
+vii. `description=None` For use in the database only (if want to store information beyond the title)
+viii. `binary=True` Set True if result sets are only Success or Fail
+ix. `control=None`,  `sample_size=None`, `confidence=None (see below)`
 
 
-BUGS:
-    No known bugs yet. If you find one, post a comment/fix on the github page.
+Evaluation Options - ABT.evaluate(**options)
+=====
+i. `sample_size` once the experiment has this many results it will finish
+ii. `force` this will force the experiment to finish on that call can be undone by setting the experiment.finished = False in the db
+iii. `confidence` default 0.95, the percentage confidence you want to have that the winning result is actually the winner
+iv. `control` this is the 0-index of the variate in the variates list passed or the variate itself. Winning variates significances are evaluated against this control. `e.g. given variates=['a','b','c'] with control='a' or 0`
 
-AUTHOR:
-    Tim Davey <timjdavey@gmail.com>
 
-COPYRIGHT:
-    Copyright 2009 Tim Davey.
-    Use, re-use, modify, redistribute, sell, repair... to your hearts content
+Evaluation methods
+=====
+i. For binary result data (success or fail), a Pearson chi-squared test[1] is used. With automatic Yates continuity[2] corrections for small data-sets and a fudge factor for tables of larger than 2x2 size.
+ii. For continuous and large result datasets, a simple z-test analysis is used[3].
+
+[1] http://en.wikipedia.org/wiki/Pearson%27s_chi-square_test
+[2] http://en.wikipedia.org/wiki/Yates%27_correction_for_continuity
+[3] http://en.wikipedia.org/wiki/Z-test
+
+
+BUGS
+=====
+No known bugs yet. If you find one, post a comment/fix on the github page.
+
+
+AUTHOR
+=====
+Tim Davey <timjdavey@gmail.com>
