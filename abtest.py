@@ -5,20 +5,20 @@ import random
 
 
 class ABTest:
-    def __init__(self, title, variates, db_persistant=False, session_persistant=True, session_name='mvtest', default=None, description=None, control=None, binary=True, sample_size=None, confidence=None):
+    def __init__(self, title, variates, db_persistent=False, session_persistent=True, session_name='abtest', default=None, description=None, control=None, binary=True, sample_size=None, confidence=None):
         self.__title = title
         
         if not isinstance(variates,list):
             raise Exception('List of "variates" passed needs to be of type list')
         self.__variates = variates
         
-        # db_persistant is greater than session_persistant
-        if db_persistant and not session_persistant:
-            raise Warning('"db_persistant" cannot be True if "session_persistant" is False')
-        # db_persistant ensures the user sees the same variate across sessions (default False)
-        self.__db_persistant = db_persistant
-        # session_persistant ensures the user sees the same variate across one session (default True)
-        self.__session_persistant = session_persistant
+        # db_persistent is greater than session_persistent
+        if db_persistent and not session_persistent:
+            raise Warning('"db_persistent" cannot be True if "session_persistent" is False')
+        # db_persistent ensures the user sees the same variate across sessions (default False)
+        self.__db_persistent = db_persistent
+        # session_persistent ensures the user sees the same variate across one session (default True)
+        self.__session_persistent = session_persistent
 
         # this is the name used to store the variate on the user in the session
         self.__session_name = session_name
@@ -66,16 +66,20 @@ class ABTest:
             self.__confidence = confidence
     
     
-    def get_variate(self, request):
+    def get_variate(self, request=None):
         """
         Given a request, returns the variate which has been saved in the session or db for that user with None if none
         """
         var = None
         # tries to get from session
-        var = self.get_variate_from_session(request)
+        if self.__session_persistent:
+            var = self.get_variate_from_session(request)
         # tries to get from db
-        if self.__db_persistant and not var:
+        elif self.__db_persistent and not var:
             var = self.get_variate_from_db(request)
+        # tries to get from object
+        elif hasattr(self,'_ABTest__variate'):
+            var = self.__variate
         return var
     
     
@@ -92,7 +96,7 @@ class ABTest:
     def get_variate_from_db(self, request):
         """
         Returns the variate from the db if that user has been apart from this experiment before
-        Note: the user must be logged in
+        Note: the user must be logged in and not an AnonymousUser
         """
         mvrs = None
         user = request.user
@@ -107,6 +111,20 @@ class ABTest:
         return self.__variates[index]
     
     
+    def get_result_id(self):
+        """
+        Returns the id of an result, if it has been assigned
+        """
+        if hasattr(self, '_ABTest__mvr'):
+            return self.__mvr.id
+        return None
+    
+    
+    def assign_variate_from_index(index):
+        self.__variate = self.__variates[index]
+        return self
+    
+    
     def clear_variate(self, request):
         """
         clears the variate from the session, so can run the experiment again
@@ -114,7 +132,7 @@ class ABTest:
         session = request.session
         if session.get(self.__session_name) and session[self.__session_name].has_key(self.__title):
             del request.session[self.__session_name][self.__title]
-        return None
+        return self
     
     
     def random_variate(self):
@@ -124,29 +142,34 @@ class ABTest:
         return random.choice(self.__variates)
     
     
-    def __index_of(self, var):
+    def index_of_variate(self, var):
         for i in xrange(len(self.__variates)):
             if var == self.__variates[i]:
                 return i
+        raise Exception('Variate not in experiment variates list')
     
     
-    def assign_experiment(self, request):
+    def assign_experiment(self, request=None):
         """
         Given a request, assigns an experiment to a user if one is not currently running
         Returns the variate chosen
         """
         var = self.get_variate(request)
-        if var and self.__session_persistant:
+        if var and self.__session_persistent:
             # if this experiment is already running then just return the variate
             return var
         else:
-            # make a session dictionary if one does not already exist
-            if not request.session.has_key(self.__session_name):
-                request.session[self.__session_name] = {}
-            # store the variate
-            mvt = request.session[self.__session_name]
-            var = self.random_variate()
-            mvt[self.__title] = { 'variate': var }
+            if self.__session_persistent:
+                # make a session dictionary if one does not already exist
+                if not request.session.has_key(self.__session_name):
+                    request.session[self.__session_name] = {}
+                # store the variate
+                mvt = request.session[self.__session_name]
+                var = self.random_variate()
+                mvt[self.__title] = { 'variate': var }
+            else:
+                # if just want the variate
+                var = self.random_variate()
         
         # if a default is set, creates a default result to override later
         if hasattr(self,'_ABTest__default'):
@@ -158,21 +181,28 @@ class ABTest:
                     mve.description = self.__description
                     mve.save()
                 # creates the object in the db
-                mvr = ABResult.objects.create(experiment=mve,variate=self.__index_of(var),value=self.__default)
-                mvt[self.__title]['default'] = mvr
+                mvr = ABResult.objects.create(experiment=mve,variate=self.index_of_variate(var),value=self.__default)
+                self.__mvr = mvr
+                if self.__session_persistent:
+                    mvt[self.__title]['default'] = mvr
             
         # reassigns the session dict with new choice
-        request.session[self.__session_name] = mvt
+        if self.__session_persistent:
+            request.session[self.__session_name] = mvt
         
         return var
     
     
-    def assign_result(self, request, value):
+    def assign_result(self, request=None, value=None, result=None):
         """
-        Saves the result of an indiviual test of a user to the db with the value outcome (0 or 1 for binary)
+        Saves the result of an indiviual test of a user to the db with a value outcome (0-or-1 for fail-or-success)
         """
-        if self.__binary and not value in [0.0,1.0]:
-            raise Exception('Experiment is set to "binary=True", meaning only 0 or 1 as value maybe passed. Please set "binary=False" when initializing object')
+        if not value:
+            raise Exception('Please provide a value')
+        if request and result: 
+            raise Exception('Please provide only a request or a result')
+        if self.__binary and not value in [0,1]:
+            raise Exception('Experiment is set to "binary=True", meaning only 0,1 or True,False as value maybe passed. Please set "binary=False" when initializing object if value is correct')
 
         # Create an experiment if one if not already running
         mve, was_new = ABExperiment.objects.get_or_create(title=self.__title,variates_length=len(self.__variates))
@@ -182,24 +212,29 @@ class ABTest:
         # save the result only if the experiment has not finished
         if not mve.finished:
             if not var in self.__variates:
-                raise Exception('"variate" from request.session is not in experiment')
+                raise Warning('"variate" from request.session is not in experiment')
             
-            # if there was a default value, then find it from creation
-            if hasattr(self,'_ABTest__default'):
+            # if there was a default value, then find the initial result from creation
+            if hasattr(self,'_ABTest__default') and self.__session_persistent:
                 mvr = request.session[self.__session_name][self.__title]['default']
-                mvr.value = value
+            elif result:
+                mvr = ABResult.objects.get(pk=result)
             else:
-                mvr = ABResult(experiment=mve,variate=self.__index_of(var),value=value)
+                mvr = ABResult(experiment=mve,variate=self.index_of_variate(var))
+            # assigns and saves
+            mvr.value = value
+            mvr.save()
             # Makes sure that the user is a proper instance of a User before trying to save to db
             if isinstance(request.user, User):
                 mvr.user = request.user
             mvr.save()
             
         # saves the result in the session
-        mvt = request.session[self.__session_name]
-        mvt[self.__title]['result'] = value
-        mvt[self.__title]['default'] = mvr
-        request.session[self.__session_name] = mvt
+        if self.__session_persistent:
+            mvt = request.session[self.__session_name]
+            mvt[self.__title]['result'] = value
+            mvt[self.__title]['default'] = mvr
+            request.session[self.__session_name] = mvt
         return var
     
     
@@ -214,7 +249,6 @@ class ABTest:
     def stats(self, mvrs=None):
         """
         Returns the stats for the experiment - for outputting how you wish
-        Optionally give it the ABResult objects for that experiment
         """
         if not mvrs:
             mvrs = ABResult.objects.filter(experiment__title=self.__title)
@@ -244,6 +278,9 @@ class ABTest:
         two test results which are binary (success or fail experiments)
         Based on chi-squared null-hypothesis testing
         http://en.wikipedia.org/wiki/G-test
+        
+        largely ported from js at
+        http://elem.com/~btilly/effective-ab-testing/g-test-calculator.html
         """
         
         try:
@@ -343,8 +380,8 @@ class ABTest:
     
     def __ztest(self, variates):
         """
-        This simply works out the c-level using an unbaised m0 (which is approximated)
-        for use with null hypothesis later on
+        This simply works out the confidence-level using an unbaised m0 (which is approximated)
+        for comparison with the null hypothesis
         http://en.wikipedia.org/wiki/Z-test
         """
         sorted_data = variates
@@ -375,7 +412,7 @@ class ABTest:
     def winners(self, mvrs=None):
         """
         Returns a list of winners for the experiment with the top confidence first
-        as ( [ (variate, confidence against control) ] , variate used as control)
+        as ( [ (variate, confidence_against_control) ] , variate_used_as_control)
         """
         if not mvrs:
             mvrs = ABResult.objects.filter(experiment__title=self.__title)
@@ -431,7 +468,7 @@ class ABTest:
             if hasattr(self, '_ABTest__confidence'):
                 confidence = self.__confidence
             if confidence:
-                winners = filter(lambda x: x[1] > confidence, winners )
+                winners = filter( lambda x: x[1] > confidence, winners )
                 if len(winners) > 1:
                     winner = winners[0]
             # save in the experiment
@@ -449,5 +486,3 @@ class ABTest:
         else:
             return None
     
-
-
