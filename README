@@ -41,12 +41,24 @@ Example A. Testing conversion rates of the copy used of some anchor (binary data
     # 4. in the view which corresponds to /button_clicked/, assign the experiment as a success (value=1)
         BCT.assign_result(request, value=1)
     
-    # 5. evaluate the experiment in a cron job or on an admin_page
-        # here you are sure the returned winning variates are better than the control variate with a confidence of 80%
-        winners, control = UIT.evaluate(confidence=0.8)
+    # 5. evaluate the experiment in a cron job or on an admin_page in two keys ways
+        # Case A. Manual inspection 
         
-        # winners is a list of tuples (winning_variate, confidence_above_control) sorted with best variate first
-        # a control variate here was not set when initializing and so it was chosen as being the worst performing variate
+        print UIT.stats()
+        # you can view the mean, stddev, var, for each variate
+        
+        winners, control = UIT.winners()
+        # winners is a list of tuples (variate, confidence_is_better_than_control)
+        # control is the variate given as the control (on initialization) or the worst performing variate
+        
+        UIT.assign_winner(winners[0])
+        # you can choose a winner manually and assign the results - here winner[0] is the best performing
+        
+        # Case B. Automatic assignment of the winner based on some parameters (see below)
+        
+        winner = UIT.evaluate(confidence=0.8)
+        # the experiment will end and the top performing variate will be chosen and returned as the winner
+        # if there is no winner with a confidence > 0.8, then evaluate returns None and experiment remains unfinished
     
     
 Example B. Testing the number of invites a user makes based on if there is a select-all button
@@ -64,8 +76,6 @@ Example B. Testing the number of invites a user makes based on if there is a sel
     # 4. in the view where you create the invites, save the result
         UIT.assign_result(request, value=len(invites))
     
-    # 5. then to return the raw data you can use to not use your own evaluation methods
-        UIT.winners() or UIT.stats()
 
 Example C. Same as example A. but the link is in an email
     # 1. Define the same as before, but ensure session_persistent=False
@@ -80,6 +90,9 @@ Example C. Same as example A. but the link is in an email
 
     # 4. Then just detect the link_index from the url in the view, assign it to the experiment, then assign the result
         ELT.assign_result(value=True,result=link_id)
+        # or can track and pass the variate itself
+        ELT.assign_result(value=True,variate=link_text)
+    
 
 Initialization Options - ABTest(**options)
 =====
