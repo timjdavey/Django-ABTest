@@ -120,11 +120,6 @@ class ABTest:
         return None
     
     
-    def assign_variate_from_index(index):
-        self.__variate = self.__variates[index]
-        return self
-    
-    
     def clear_variate(self, request):
         """
         clears the variate from the session, so can run the experiment again
@@ -193,11 +188,11 @@ class ABTest:
         return var
     
     
-    def assign_result(self, request=None, value=None, result=None):
+    def assign_result(self, request=None, value=None, result=None, variate=None):
         """
         Saves the result of an indiviual test of a user to the db with a value outcome (0-or-1 for fail-or-success)
         """
-        if not value:
+        if type(value) == type(None):
             raise Exception('Please provide a value')
         if request and result: 
             raise Exception('Please provide only a request or a result')
@@ -207,12 +202,15 @@ class ABTest:
         # Create an experiment if one if not already running
         mve, was_new = ABExperiment.objects.get_or_create(title=self.__title,variates_length=len(self.__variates))
         # Gets the variate
-        var = self.get_variate(request)
+        if variate:
+            var = variate
+        else:
+            var = self.get_variate(request)
         
         # save the result only if the experiment has not finished
         if not mve.finished:
             if not var in self.__variates:
-                raise Warning('"variate" from request.session is not in experiment')
+                raise Exception('%s not in %s' % (var, self.__variates))
             
             # if there was a default value, then find the initial result from creation
             if hasattr(self,'_ABTest__default') and self.__session_persistent:
@@ -225,7 +223,7 @@ class ABTest:
             mvr.value = value
             mvr.save()
             # Makes sure that the user is a proper instance of a User before trying to save to db
-            if isinstance(request.user, User):
+            if request and isinstance(request.user, User):
                 mvr.user = request.user
             mvr.save()
             
@@ -342,7 +340,7 @@ class ABTest:
                         
         # want to return winners at the top
         winners.reverse()
-        return winners, control['index']
+        return winners, control
     
     
     def __calculate_g_test(self, data, is_yates=False):
@@ -402,7 +400,7 @@ class ABTest:
         for v in sorted_data:
             if not v == control:
                 winners.append(( self.__calculate_z_test(mean0, v['mean'], v['stderr'])))
-        return winners, control['index']
+        return winners, control
     
     
     def __calculate_z_test(self, mean0, mean, stderr):
@@ -444,10 +442,28 @@ class ABTest:
         
     
     
+    def assign_winner(self, winner, control=None, mve=None):
+        """
+        Saves a winner to the db and finishes experiment
+        """
+        if not mve:
+            mve = ABExperiment.objects.get(title=self.__title)
+        
+        mve.winner = int(winner[0])
+        mve.finished = True
+        mve.confidence = winner[1]
+        if control:
+            mve.control = control
+        mve.save()
+        
+        return self.get_variate_from_index(mve.winner)
+    
+    
     def evaluate(self,sample_size=None,force=False,confidence=None):
         """
-        Evaluates the winning results based on a series of parameters
-        This is will the experiment automatically is nessisary
+        Evaluates the winning results based on a series of optional parameters
+        This is will end the experiment automatically if nessisary
+        Returns the chosen winning variate
         """
         
         if not sample_size and not hasattr(self, '_ABTest__sample_size') and not force and not confidence and not hasattr(self, '_ABTest__confidence'):
@@ -471,18 +487,14 @@ class ABTest:
                 winners = filter( lambda x: x[1] > confidence, winners )
                 if len(winners) > 1:
                     winner = winners[0]
-            # save in the experiment
-            if winner:
-                mve.winner = winner
-                mve.finished = True
-                mve.confidence = confidence
-                mve.save()
-        else:
-            # simply return if winner already exists and experiment is over
-            winner = mve.winner
-        
+        # save in the experiment
         if winner:
-            return self.__variates[winner]
+            return self.assign_winner(winner,control)
         else:
             return None
+        
+        
+        
+
+
     
