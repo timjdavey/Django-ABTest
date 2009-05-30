@@ -14,6 +14,7 @@ class ABExperiment(models.Model):
     variates_length = models.PositiveIntegerField(null=False)
     
     winner = models.PositiveIntegerField(null=True)
+    control = models.PositiveIntegerField(null=True)
     finished = models.BooleanField(null=True,default=False,db_index=True)
     confidence = models.FloatField(null=True)
 
